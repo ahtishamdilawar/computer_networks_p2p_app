@@ -8,8 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Upload, File, Check, X, Download } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 const colorPalette = [
   "bg-blue-50 border-blue-200",
@@ -38,10 +43,11 @@ const PeerConnectionManager = () => {
   const [groups, setGroups] = useState(new Map());
   const [groupMessages, setGroupMessages] = useState(new Map());
   const [newGroupName, setNewGroupName] = useState("");
-  const [selectedGroupMembers, setSelectedGroupMembers] = useState([])
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState([]);
   const [nickname, setNickname] = useState("");
   const [peerNicknames, setPeerNicknames] = useState(new Map());
   const [isNicknameSet, setIsNicknameSet] = useState(false);
+  const [downloadDirectory, setDownloadDirectory] = useState("");
   // Assign a unique color to each peer
   const assignPeerColor = useCallback(
     (peerId) => {
@@ -68,18 +74,18 @@ const PeerConnectionManager = () => {
     const newSocket = io("http://localhost:3000");
     const newPeer = new Peer();
 
-    newPeer.on("open", (id="123") => {
+    newPeer.on("open", (id = "123") => {
       setPeerId(id);
       setStatus("connected");
       // Don't register until nickname is set
     });
     // Add nickname update listener
     newSocket.on("nickname-updated", ({ peerId, nickname }) => {
-      setPeerNicknames(prev => new Map(prev).set(peerId, nickname));
+      setPeerNicknames((prev) => new Map(prev).set(peerId, nickname));
     });
-    
-     // Listen for group-related events
-     newSocket.on("group-created", (groupData) => {
+
+    // Listen for group-related events
+    newSocket.on("group-created", (groupData) => {
       setGroups((prev) => new Map(prev.set(groupData.id, groupData)));
       setGroupMessages((prev) => new Map(prev.set(groupData.id, [])));
     });
@@ -89,7 +95,9 @@ const PeerConnectionManager = () => {
         if (!newMessages.has(groupId)) {
           newMessages.set(groupId, []);
         }
-        newMessages.get(groupId).push({ sender, text: message, timestamp: Date.now() });
+        newMessages
+          .get(groupId)
+          .push({ sender, text: message, timestamp: Date.now() });
         return newMessages;
       });
     });
@@ -108,16 +116,15 @@ const PeerConnectionManager = () => {
       console.log("Received peer list:", peerList);
       const filteredPeers = peerList.filter((p) => p.peerId !== peerId);
       setConnectedPeers(filteredPeers);
-      
-    newPeer.on("error", (error) => {
-      console.error("PeerJS error:", error);
-      setStatus("error");
-    });
-    
-    
+
+      newPeer.on("error", (error) => {
+        console.error("PeerJS error:", error);
+        setStatus("error");
+      });
+
       // Update nicknames
       const newNicknames = new Map();
-      peerList.forEach(peer => {
+      peerList.forEach((peer) => {
         if (peer.nickname) {
           newNicknames.set(peer.peerId, peer.nickname);
         }
@@ -133,54 +140,86 @@ const PeerConnectionManager = () => {
       newPeer.destroy();
     };
   }, []);
-    // Helper function to get nickname
-    const getNickname = (peerId) => {
-      return peerNicknames.get(peerId) || peerId;
-    };
+  // Helper function to get nickname
+  const getNickname = (peerId) => {
+    return peerNicknames.get(peerId) || peerId;
+  };
   // Handle nickname submission
-  const submitNickname = () => {
+  // const submitNickname = () => {
+  //   if (!nickname.trim()) return;
+
+  //   socket.emit("register-peer", {
+  //     peerId,
+  //     nickname: nickname.trim()
+  //   });
+  //   setIsNicknameSet(true);
+  // };
+  const submitNickname = async () => {
     if (!nickname.trim()) return;
-    
-    socket.emit("register-peer", {
-      peerId,
-      nickname: nickname.trim()
-    });    
-    setIsNicknameSet(true);
-  };
- // Create new group
- const createGroup = () => {
-  if (!newGroupName.trim() || selectedGroupMembers.length === 0) return;
 
-  const groupData = {
-    id: `group-${Date.now()}`,
-    name: newGroupName,
-    members: [...selectedGroupMembers, peerId],
-    creator: peerId,
-  };
-
-  socket.emit("create-group", groupData);
-  setNewGroupName("");
-  setSelectedGroupMembers([]);
-};
- // Send group message
- const sendGroupMessage = (groupId, message) => {
-  if (!message.trim() || !groups.has(groupId)) return;
-
-  socket.emit("group-message", {
-    groupId,
-    message,
-    sender: peerId,
-  });
-
-  setGroupMessages((prev) => {
-    const newMessages = new Map(prev);
-    if (!newMessages.has(groupId)) {
-      newMessages.set(groupId, []);
+    // If no download directory is selected, prompt user
+    if (!downloadDirectory) {
+      alert("Please select a download directory");
+      return;
     }
-    newMessages.get(groupId).push({ sender: "me", text: message, timestamp: Date.now() });
-    return newMessages;
-  });
-};
+
+    // Use the Web File System API to get directory handle
+    try {
+      const dirHandle = await window.showDirectoryPicker();
+
+      // Verify write permissions
+      const testFile = await dirHandle.getFileHandle(`test_${Date.now()}.txt`, {
+        create: true,
+      });
+      await testFile.createWritable();
+
+      socket.emit("register-peer", {
+        peerId,
+        nickname: nickname.trim(),
+        downloadDirectory: dirHandle,
+      });
+      setIsNicknameSet(true);
+    } catch (error) {
+      console.error("Directory selection error:", error);
+      alert("Failed to select download directory. Please try again.");
+    }
+  };
+  // Create new group
+  const createGroup = () => {
+    if (!newGroupName.trim() || selectedGroupMembers.length === 0) return;
+
+    const groupData = {
+      id: `group-${Date.now()}`,
+      name: newGroupName,
+      members: [...selectedGroupMembers, peerId],
+      creator: peerId,
+    };
+
+    socket.emit("create-group", groupData);
+    setNewGroupName("");
+    setSelectedGroupMembers([]);
+  };
+  // Send group message
+  const sendGroupMessage = (groupId, message) => {
+    if (!message.trim() || !groups.has(groupId)) return;
+
+    socket.emit("group-message", {
+      groupId,
+      message,
+      sender: peerId,
+    });
+
+    setGroupMessages((prev) => {
+      const newMessages = new Map(prev);
+      if (!newMessages.has(groupId)) {
+        newMessages.set(groupId, []);
+      }
+      newMessages
+        .get(groupId)
+        .push({ sender: "me", text: message, timestamp: Date.now() });
+      return newMessages;
+    });
+  };
   // Handle peer list updates
   useEffect(() => {
     if (!socket) return;
@@ -276,33 +315,145 @@ const PeerConnectionManager = () => {
   );
 
   // Download received file
-  const downloadFile = (peerId, fileIndex) => {
+  // const downloadFile = (peerId, fileIndex) => {
+  //   const fileTransfer = fileTransfers.get(peerId)[fileIndex];
+  //   const blob = new Blob([fileTransfer.fileData], {
+  //     type: "application/octet-stream",
+  //   });
+  //   const link = document.createElement("a");
+  //   link.href = window.URL.createObjectURL(blob);
+  //   link.download = fileTransfer.fileName;
+  //   link.click();
+  // };
+  const downloadFile = async (peerId, fileIndex) => {
     const fileTransfer = fileTransfers.get(peerId)[fileIndex];
-    const blob = new Blob([fileTransfer.fileData], {
-      type: "application/octet-stream",
-    });
-    const link = document.createElement("a");
-    link.href = window.URL.createObjectURL(blob);
-    link.download = fileTransfer.fileName;
-    link.click();
-  };
 
-  // Reject incoming connection
-  const rejectConnection = useCallback(
-    (sourcePeerId) => {
-      const conn = pendingConnections.get(sourcePeerId);
-      if (conn) {
-        conn.close();
+    try {
+      // Retrieve the directory handle for this peer
+      const dirHandle = await window.showDirectoryPicker({
+        startIn: "desktop",
+      });
+
+      // Prepare file metadata
+      const fileName = `${fileTransfer.fileName}_v${fileTransfer.version}`;
+      const fileMetadata = {
+        originalFileName: fileTransfer.fileName,
+        version: fileTransfer.version,
+        downloadedAt: new Date().toISOString(),
+      };
+
+      // Create or update peer's version tracking JSON
+      let versionTrackingHandle;
+      try {
+        // Try to get existing file
+        versionTrackingHandle = await dirHandle.getFileHandle(
+          "peer_files.json"
+        );
+      } catch (error) {
+        // Create new file if it doesn't exist
+        versionTrackingHandle = await dirHandle.getFileHandle(
+          "peer_files.json",
+          { create: true }
+        );
       }
 
-      setPendingConnections((prev) => {
-        const newPending = new Map(prev);
-        newPending.delete(sourcePeerId);
-        return newPending;
+      // Read existing file content
+      let existingContent = [];
+      try {
+        const file = await versionTrackingHandle.getFile();
+        existingContent = JSON.parse(await file.text());
+      } catch (parseError) {
+        // If file is empty or invalid, start with empty array
+        existingContent = [];
+      }
+
+      // Add or update file metadata
+      const existingFileIndex = existingContent.findIndex(
+        (f) => f.originalFileName === fileTransfer.fileName
+      );
+
+      if (existingFileIndex !== -1) {
+        // Update existing file entry
+        existingContent[existingFileIndex] = {
+          ...existingContent[existingFileIndex],
+          versions: [
+            ...(existingContent[existingFileIndex].versions || []),
+            fileMetadata,
+          ],
+        };
+      } else {
+        // Add new file entry
+        existingContent.push({
+          originalFileName: fileTransfer.fileName,
+          versions: [fileMetadata],
+        });
+      }
+      // Write updated content back to JSON file
+      const writableVersionTracking =
+        await versionTrackingHandle.createWritable();
+      await writableVersionTracking.write(
+        JSON.stringify(existingContent, null, 2)
+      );
+      await writableVersionTracking.close();
+
+      // Write the actual file
+      const fileHandle = await dirHandle.getFileHandle(fileName, {
+        create: true,
       });
-    },
-    [pendingConnections]
-  );
+      const writable = await fileHandle.createWritable();
+      await writable.write(fileTransfer.fileData);
+      await writable.close();
+
+      alert(`File ${fileName} downloaded and tracked successfully!`);
+    } catch (error) {
+      console.error("File download error:", error);
+      alert(`Failed to download file: ${error.message}`);
+    }
+  };
+  const checkFileVersion = async (peerId, fileName, newVersion) => {
+    try {
+      // Retrieve the directory handle for this peer
+      const dirHandle = await window.showDirectoryPicker({
+        startIn: "desktop",
+      });
+
+      // Try to read existing version tracking file
+      let versionTrackingHandle;
+      try {
+        versionTrackingHandle = await dirHandle.getFileHandle(
+          "peer_files.json"
+        );
+      } catch (error) {
+        // No tracking file exists, so this is a new file
+        return true;
+      }
+
+      // Read existing file content
+      const file = await versionTrackingHandle.getFile();
+      const existingContent = JSON.parse(await file.text());
+
+      // Find the file entry
+      const fileEntry = existingContent.find(
+        (f) => f.originalFileName === fileName
+      );
+
+      if (!fileEntry) {
+        // No existing entry means new file
+        return true;
+      }
+
+      // Check if this version already exists
+      const versionExists = fileEntry.versions.some(
+        (v) => v.version === newVersion
+      );
+
+      return !versionExists;
+    } catch (error) {
+      console.error("Version check error:", error);
+      // Default to allowing file in case of any errors
+      return true;
+    }
+  };
 
   // Connect to another peer
   const connectToPeer = useCallback(
@@ -318,47 +469,96 @@ const PeerConnectionManager = () => {
         setConnections((prev) => new Map(prev.set(targetPeerId, [])));
       });
 
-      conn.on("data", (data) => {
-        console.log(`Received data from ${targetPeerId}:`, data);
-        if (typeof data === "string") {
-          setConnections((prev) => {
-            const newConnections = new Map(prev);
-            if (!newConnections.has(targetPeerId)) {
-              newConnections.set(targetPeerId, []);
-            }
-            newConnections
-              .get(targetPeerId)
-              .push({ sender: targetPeerId, text: data });
-            return newConnections;
-          });
-        } else if (data && data.fileName && data.fileData) {
-          // Handle file transfer
-          setFileTransfers((prev) => {
-            const newTransfers = new Map(prev);
-            if (!newTransfers.has(targetPeerId)) {
-              newTransfers.set(targetPeerId, []);
-            }
-            newTransfers.get(targetPeerId).push({
-              fileName: data.fileName,
-              fileData: data.fileData,
-              receivedAt: new Date(),
-            });
-            return newTransfers;
-          });
+      // conn.on("data", (data) => {
+      //   console.log(`Received data from ${targetPeerId}:`, data);
+      //   if (typeof data === "string") {
+      //     setConnections((prev) => {
+      //       const newConnections = new Map(prev);
+      //       if (!newConnections.has(targetPeerId)) {
+      //         newConnections.set(targetPeerId, []);
+      //       }
+      //       newConnections
+      //         .get(targetPeerId)
+      //         .push({ sender: targetPeerId, text: data });
+      //       return newConnections;
+      //     });
+      //   } else if (data && data.fileName && data.fileData) {
+      //     // Handle file transfer
+      //     setFileTransfers((prev) => {
+      //       const newTransfers = new Map(prev);
+      //       if (!newTransfers.has(targetPeerId)) {
+      //         newTransfers.set(targetPeerId, []);
+      //       }
+      //       newTransfers.get(targetPeerId).push({
+      //         fileName: data.fileName,
+      //         fileData: data.fileData,
+      //         receivedAt: new Date(),
+      //       });
+      //       return newTransfers;
+      //     });
 
-          // Add file message to chat
-          setConnections((prev) => {
-            const newConnections = new Map(prev);
-            if (!newConnections.has(targetPeerId)) {
-              newConnections.set(targetPeerId, []);
-            }
-            newConnections.get(targetPeerId).push({
-              sender: targetPeerId,
-              text: `Sent a file: ${data.fileName}`,
-              type: "file",
+      //     // Add file message to chat
+      //     setConnections((prev) => {
+      //       const newConnections = new Map(prev);
+      //       if (!newConnections.has(targetPeerId)) {
+      //         newConnections.set(targetPeerId, []);
+      //       }
+      //       newConnections.get(targetPeerId).push({
+      //         sender: targetPeerId,
+      //         text: `Sent a file: ${data.fileName}`,
+      //         type: "file",
+      //       });
+      //       return newConnections;
+      //     });
+      //   }
+      // });
+      // Modify file transfer handler to use version check
+      conn.on("data", async (data) => {
+        if (data && data.fileName && data.fileData) {
+          // Check if file version is new
+          const isNewVersion = await checkFileVersion(
+            conn.peer,
+            data.fileName,
+            data.version
+          );
+
+          if (isNewVersion) {
+            // Existing file transfer logic for new versions
+            setFileTransfers((prev) => {
+              const newTransfers = new Map(prev);
+              if (!newTransfers.has(conn.peer)) {
+                newTransfers.set(conn.peer, []);
+              }
+
+              newTransfers.get(conn.peer).push({
+                fileName: data.fileName,
+                fileData: data.fileData,
+                version: data.version,
+                receivedAt: new Date(),
+              });
+
+              return newTransfers;
             });
-            return newConnections;
-          });
+
+            // Add file message to chat
+            setConnections((prev) => {
+              const newConnections = new Map(prev);
+              if (!newConnections.has(conn.peer)) {
+                newConnections.set(conn.peer, []);
+              }
+              newConnections.get(conn.peer).push({
+                sender: conn.peer,
+                text: `Sent a file: ${data.fileName} (v${data.version})`,
+                type: "file",
+              });
+              return newConnections;
+            });
+          } else {
+            // File with same version exists
+            alert(
+              `File ${data.fileName} with version ${data.version} already exists.`
+            );
+          }
         }
       });
 
@@ -419,23 +619,60 @@ const PeerConnectionManager = () => {
   return (
     <div>
       {!isNicknameSet ? (
+        // <Card className="w-full max-w-md mx-auto mt-8">
+        //   <CardHeader>
+        //     <CardTitle>Set Your Nickname</CardTitle>
+        //   </CardHeader>
+        //   <CardContent>
+        //     <div className="flex space-x-2">
+        //       <Input
+        //         value={nickname}
+        //         onChange={(e) => setNickname(e.target.value)}
+        //         placeholder="Enter your nickname"
+        //         onKeyPress={(e) => {
+        //           if (e.key === "Enter") {
+        //             submitNickname();
+        //           }
+        //         }}
+        //       />
+        //       <Button onClick={submitNickname}>Join</Button>
+        //     </div>
+        //   </CardContent>
+        // </Card>
         <Card className="w-full max-w-md mx-auto mt-8">
           <CardHeader>
-            <CardTitle>Set Your Nickname</CardTitle>
+            <CardTitle>Set Your Nickname and Download Directory</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex space-x-2">
+            <div className="space-y-4">
               <Input
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 placeholder="Enter your nickname"
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    submitNickname();
+              />
+
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const dirHandle = await window.showDirectoryPicker();
+                    setDownloadDirectory(dirHandle.name);
+                  } catch (error) {
+                    console.error("Directory selection error:", error);
                   }
                 }}
-              />
-              <Button onClick={submitNickname}>Join</Button>
+              >
+                {downloadDirectory
+                  ? `Selected: ${downloadDirectory}`
+                  : "Select Download Directory"}
+              </Button>
+
+              <Button
+                onClick={submitNickname}
+                disabled={!nickname.trim() || !downloadDirectory}
+              >
+                Join
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -462,13 +699,21 @@ const PeerConnectionManager = () => {
                       <h4 className="mb-2">Select Members</h4>
                       <ScrollArea className="h-[200px] border rounded-lg p-2">
                         {connectedPeers.map((peer) => (
-                          <div key={peer.peerId} className="flex items-center space-x-2 mb-2">
+                          <div
+                            key={peer.peerId}
+                            className="flex items-center space-x-2 mb-2"
+                          >
                             <input
                               type="checkbox"
-                              checked={selectedGroupMembers.includes(peer.peerId)}
+                              checked={selectedGroupMembers.includes(
+                                peer.peerId
+                              )}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setSelectedGroupMembers((prev) => [...prev, peer.peerId]);
+                                  setSelectedGroupMembers((prev) => [
+                                    ...prev,
+                                    peer.peerId,
+                                  ]);
                                 } else {
                                   setSelectedGroupMembers((prev) =>
                                     prev.filter((id) => id !== peer.peerId)
@@ -491,9 +736,14 @@ const PeerConnectionManager = () => {
             {/* Pending Connections Section */}
             {pendingConnections.size > 0 && (
               <div className="mb-4 bg-gray-50 p-3 rounded-lg">
-                <h3 className="text-lg font-semibold mb-2">Pending Connections</h3>
+                <h3 className="text-lg font-semibold mb-2">
+                  Pending Connections
+                </h3>
                 {Array.from(pendingConnections.keys()).map((peerId) => (
-                  <div key={peerId} className="flex items-center space-x-2 mb-2">
+                  <div
+                    key={peerId}
+                    className="flex items-center space-x-2 mb-2"
+                  >
                     <Badge>{getNickname(peerId)}</Badge>
                     <Button
                       size="sm"
@@ -522,7 +772,10 @@ const PeerConnectionManager = () => {
               <TabsContent value="peers">
                 <ScrollArea>
                   {connectedPeers.map((p) => (
-                    <div key={p.peerId} className="flex justify-end space-x-2 mb-2">
+                    <div
+                      key={p.peerId}
+                      className="flex justify-end space-x-2 mb-2"
+                    >
                       <Badge>{getNickname(p.peerId)}</Badge>
                       <Button
                         onClick={() => connectToPeer(p.peerId)}
@@ -552,7 +805,13 @@ const PeerConnectionManager = () => {
                                 : "bg-gray-100 text-left"
                             }`}
                           >
-                            <strong>{msg.sender === "me" ? "You" : getNickname(msg.sender)}:</strong> {msg.text}
+                            <strong>
+                              {msg.sender === "me"
+                                ? "You"
+                                : getNickname(msg.sender)}
+                              :
+                            </strong>{" "}
+                            {msg.text}
                           </div>
                         ))}
                       </ScrollArea>
@@ -612,10 +871,15 @@ const PeerConnectionManager = () => {
                               }`}
                             >
                               <strong className="block mb-1">
-                                {msg.sender === "me" ? "You" : getNickname(msg.sender)}:
+                                {msg.sender === "me"
+                                  ? "You"
+                                  : getNickname(msg.sender)}
+                                :
                               </strong>
                               {msg.type === "file" ? (
-                                <span className="text-blue-600">{msg.text}</span>
+                                <span className="text-blue-600">
+                                  {msg.text}
+                                </span>
                               ) : (
                                 <span>{msg.text}</span>
                               )}
