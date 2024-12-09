@@ -1,12 +1,47 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
+const redis = require("redis");
 const io = require('socket.io')(http, {
     cors: {
         origin: '*',
         methods: ['GET', 'POST'],
     }
 });
+// Redis clients for publishing and subscribing
+const redisSubscriber = redis.createClient();
+const redisPublisher = redis.createClient();
+(async () => {
+redisPublisher.on('connect', () => {
+    console.log('Redis publisher connected');
+});
+await redisPublisher.connect();
+
+})();
+(async () => {
+    redisSubscriber.on('connect', () => {
+        console.log('Redis subscriber connected');
+    });
+   await redisSubscriber.connect();
+});
+
+redisPublisher.on('error', (err) => {
+    console.error('Redis publisher error:', err);
+});
+
+redisSubscriber.on('connect', () => {
+    console.log('Redis subscriber connected');
+});
+
+redisSubscriber.on('error', (err) => {
+    console.error('Redis subscriber error:', err);
+});
+// Integrate Redis with Socket.IO
+io.adapter(require('socket.io-redis')({
+    host: '127.0.0.1', // Redis server running on wsl
+    port: 6379         // Default Redis port
+}));
+
 
 // Store connected peers and groups
 const connectedPeers = new Map();
@@ -20,11 +55,13 @@ io.on('connection', (socket) => {
         console.log('Peer registered:', peerId, 'with nickname:', nickname);
         
         // Store the peer ID with its socket ID
-        connectedPeers.set(socket.id, {
-            peerId: peerId,
-            nickname: nickname,
-            timestamp: Date.now()
-        });
+        connectedPeers.set(socket.id, { peerId, nickname });
+    publishUpdate('peer-updates', {
+        action: 'register',
+        peerId,
+        nickname,
+        socketId: socket.id
+    });
         
           // Broadcast nickname update to all clients
           io.emit('nickname-updated', { peerId, nickname });
@@ -37,29 +74,20 @@ io.on('connection', (socket) => {
 
     // Handle group creation
     socket.on('create-group', (groupData) => {
-        console.log('New group created:', groupData);
-        
-        // Store the group
-        groups.set(groupData.id, {
-            ...groupData,
-            timestamp: Date.now()
+        groups.set(groupData.id, groupData);
+        publishUpdate('group-updates', {
+            action: 'create',
+            groupData
         });
-
-        // Join the socket to the group's room
         socket.join(groupData.id);
-
-        // Make all group members join the room
         groupData.members.forEach(memberId => {
             const memberSocket = findSocketByPeerId(memberId);
             if (memberSocket) {
                 memberSocket.join(groupData.id);
             }
         });
-
-        // Broadcast group creation to all members
         io.to(groupData.id).emit('group-created', groupData);
     });
-
     // Handle group messages
     socket.on('group-message', ({ groupId, message, sender }) => {
         if (groups.has(groupId)) {
@@ -75,14 +103,17 @@ io.on('connection', (socket) => {
 
     // Handle disconnection
     socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
-        
-        // Remove peer from connected peers
-        connectedPeers.delete(socket.id);
-        
-        // Broadcast updated peer list to all clients
-        broadcastPeerList();
+        const peer = connectedPeers.get(socket.id);
+        if (peer) {
+            publishUpdate('peer-updates', {
+                action: 'disconnect',
+                socketId: socket.id
+            });
+            connectedPeers.delete(socket.id);
+            broadcastPeerList();
+        }
     });
+    
 
     // Handle peer status updates
     socket.on('peer-status', (status) => {
@@ -92,6 +123,43 @@ io.on('connection', (socket) => {
         }
     });
 });
+// Subscribe to Redis channels for syncing state
+redisSubscriber.subscribe('peer-updates');
+redisSubscriber.subscribe('group-updates');
+
+redisSubscriber.on('message', (channel, message) => {
+    const data = JSON.parse(message);
+
+    if (channel === 'peer-updates') {
+        const { peerId, nickname, socketId, action } = data;
+        if (action === 'register') {
+            connectedPeers.set(socketId, { peerId, nickname });
+        } else if (action === 'disconnect') {
+            connectedPeers.delete(socketId);
+        }
+        broadcastPeerList();
+    } else if (channel === 'group-updates') {
+        const { groupData, action } = data;
+        if (action === 'create') {
+            groups.set(groupData.id, groupData);
+        }
+    }
+});
+// Function to publish updates to Redis
+function publishUpdate(channel, data) {
+   
+        // If redisPublisher is already connected, just publish the update
+        redisPublisher.publish(channel, JSON.stringify(data), (err, response) => {
+            if (err) {
+                console.error('Error publishing to Redis:', err);
+            } else {
+                console.log('Message published to Redis:', response);
+            }
+        });
+    
+}
+
+
 
 // Helper function to find socket by peer ID
 function findSocketByPeerId(peerId) {
@@ -114,6 +182,9 @@ function broadcastPeerList() {
     
     io.emit('peer-list-updated', peerList);
 }
+app.get('/', (req, res) => {
+    res.status(200).send('Server is healthy');
+});
 
 // Start server
 const PORT = process.env.PORT || 3000;
