@@ -172,19 +172,28 @@ const PeerConnectionManager = () => {
       return;
     }
 
-   
+    // Use the Web File System API to get directory handle
+    try {
+      const dirHandle = await window.showDirectoryPicker();
 
-      
+      // Verify write permissions
+      const testFile = await dirHandle.getFileHandle(`test_${Date.now()}.txt`, {
+        create: true,
+      });
+      await testFile.createWritable();
       socket.emit("register-peer", {
         peerId,
         nickname: nickname.trim(),
-        downloadDirectory: downloadDirectory.name,
+        downloadDirectory: dirHandle,
       });
     
     // Immediately update local nickname
     setPeerNicknames(prev => new Map(prev).set(peerId, nickname.trim()));
     setIsNicknameSet(true);
-  
+  } catch (error) {
+    console.error("Directory selection error:", error);
+    alert("Failed to select download directory. Please try again.");
+  }
 };
  
  // Create new group
@@ -336,7 +345,9 @@ const PeerConnectionManager = () => {
     const fileTransfer = fileTransfers.get(peerId)[fileIndex];
     try {
       // Retrieve the directory handle for this peer
-      const dirHandle = downloadDirectory;
+      const dirHandle = await window.showDirectoryPicker({
+        startIn: "desktop",
+      });
 
       // Prepare file metadata
       const fileName = `${fileTransfer.fileName}_v${fileTransfer.version}`;
@@ -413,24 +424,7 @@ const PeerConnectionManager = () => {
       console.error("File download error:", error);
       alert(`Failed to download file: ${error.message}`);
     }
-    
   };
- // Reject incoming connection
- const rejectConnection = useCallback(
-  (sourcePeerId) => {
-    const conn = pendingConnections.get(sourcePeerId);
-    if (conn) {
-      conn.close();
-    }
-
-    setPendingConnections((prev) => {
-      const newPending = new Map(prev);
-      newPending.delete(sourcePeerId);
-      return newPending;
-    });
-  },
-  [pendingConnections]
-);
   const checkFileVersion = async (peerId, fileName, newVersion) => {
     try {
       // Retrieve the directory handle for this peer
@@ -493,18 +487,6 @@ const PeerConnectionManager = () => {
       });
 
       conn.on("data", async (data) => {
-        if (typeof data === "string") {
-          setConnections((prev) => {
-            const newConnections = new Map(prev);
-            if (!newConnections.has(targetPeerId)) {
-              newConnections.set(targetPeerId, []);
-            }
-            newConnections
-              .get(targetPeerId)
-              .push({ sender: targetPeerId, text: data });
-            return newConnections;
-          });
-        }
         if (data && data.fileName && data.fileData) {
           // Check if file version is new
           const isNewVersion = await checkFileVersion(
@@ -629,14 +611,14 @@ const PeerConnectionManager = () => {
                 onClick={async () => {
                   try {
                     const dirHandle = await window.showDirectoryPicker();
-                    setDownloadDirectory(dirHandle);
+                    setDownloadDirectory(dirHandle.name);
                   } catch (error) {
                     console.error("Directory selection error:", error);
                   }
                 }}
               >
                 {downloadDirectory
-                  ? `Selected: ${downloadDirectory.name}`
+                  ? `Selected: ${downloadDirectory}`
                   : "Select Download Directory"}
               </Button>
 
@@ -782,7 +764,7 @@ const PeerConnectionManager = () => {
                 </ScrollArea>
               </TabsContent>
               <TabsContent value="groups">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-40 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {Array.from(groups.values()).map((group) => (
                     <div key={group.id} className="border rounded-lg p-4">
                        <h3 className="text-xl text-[#380c85] font-bold mb-2 flex justify-center items-center text-center">
@@ -860,13 +842,13 @@ const PeerConnectionManager = () => {
                           {connections.get(peerId).map((msg, idx) => (
                             <div
                               key={idx}
-                              className={`p-2 inline-block rounded-lg ${
+                              className={`p-2 rounded-lg ${
                                 msg.sender === "me"
                                 ? "bg-[#380c85] text-white text-right"  // Text color is white for 'me'
                                 : "bg-gray-100 text-black text-left" 
                                 }`}
                             >
-                              <strong className=" mb-1">
+                              <strong className="block mb-1">
                               {msg.sender === "me"
                                   ? "You"
                                   : getNickname(msg.sender)}
@@ -903,11 +885,6 @@ const PeerConnectionManager = () => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  style={{
-                                    backgroundColor: '#380c85', // Button background color
-                                    color: 'white',  
-                                            // Text color
-                                  }}
                                   onClick={() => downloadFile(peerId, index)}
                                 >
                                   <Download className="mr-2 h-4 w-4" /> Download
