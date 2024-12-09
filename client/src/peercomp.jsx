@@ -164,25 +164,25 @@ const PeerConnectionManager = () => {
     }
 
     // Use the Web File System API to get directory handle
-    try {
-      const dirHandle = await window.showDirectoryPicker();
+    // try {
+    //   const dirHandle = await window.showDirectoryPicker();
 
-      // Verify write permissions
-      const testFile = await dirHandle.getFileHandle(`test_${Date.now()}.txt`, {
-        create: true,
-      });
-      await testFile.createWritable();
+    //   // Verify write permissions
+    //   const testFile = await dirHandle.getFileHandle(`test_${Date.now()}.txt`, {
+    //     create: true,
+    //   });
+    //   await testFile.createWritable();
 
-      socket.emit("register-peer", {
-        peerId,
-        nickname: nickname.trim(),
-        downloadDirectory: dirHandle,
-      });
-      setIsNicknameSet(true);
-    } catch (error) {
-      console.error("Directory selection error:", error);
-      alert("Failed to select download directory. Please try again.");
-    }
+    socket.emit("register-peer", {
+      peerId,
+      nickname: nickname.trim(),
+      downloadDirectory: downloadDirectory.name,
+    });
+    setIsNicknameSet(true);
+    // } catch (error) {
+    //   console.error("Directory selection error:", error);
+    //   alert("Failed to select download directory. Please try again.");
+    // }
   };
   // Create new group
   const createGroup = () => {
@@ -330,9 +330,7 @@ const PeerConnectionManager = () => {
 
     try {
       // Retrieve the directory handle for this peer
-      const dirHandle = await window.showDirectoryPicker({
-        startIn: "desktop",
-      });
+      const dirHandle = downloadDirectory;
 
       // Prepare file metadata
       const fileName = `${fileTransfer.fileName}_v${fileTransfer.version}`;
@@ -656,14 +654,14 @@ const PeerConnectionManager = () => {
                 onClick={async () => {
                   try {
                     const dirHandle = await window.showDirectoryPicker();
-                    setDownloadDirectory(dirHandle.name);
+                    setDownloadDirectory(dirHandle);
                   } catch (error) {
                     console.error("Directory selection error:", error);
                   }
                 }}
               >
                 {downloadDirectory
-                  ? `Selected: ${downloadDirectory}`
+                  ? `Selected: ${downloadDirectory.name}`
                   : "Select Download Directory"}
               </Button>
 
