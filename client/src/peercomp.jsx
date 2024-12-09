@@ -134,9 +134,10 @@ const PeerConnectionManager = () => {
     };
   }, []);
     // Helper function to get nickname
-    const getNickname = (peerId) => {
+    const getNickname = useCallback((peerId) => {
       return peerNicknames.get(peerId) || peerId;
-    };
+    }, [peerNicknames]);
+  
   // Handle nickname submission
   const submitNickname = () => {
     if (!nickname.trim()) return;
